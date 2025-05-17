@@ -1,4 +1,5 @@
 #!/bin/bash
+set -x
 
 PATH=/bin:/usr/bin
 
@@ -15,7 +16,7 @@ fi
 
 TMP_HTML=$(mktemp)
 
-curl -o - \
+curl -s -o - \
   -X POST http://localhost:3000/scrape \
   -H 'Content-Type: application/json' \
   -d '{
@@ -33,5 +34,9 @@ echo "wrote to $TMP_HTML"
 # 294.34 kWh
 ENERGY_TODAY=$(sed 's#^.*Energy today</div>##' "$TMP_HTML" | sed 's#<div[^>]*>##' | cut -c 1-100 | sed 's/<.*$//')
 LIFETIME_ENERGY=$(sed 's#^.*Lifetime energy</div>##' "$TMP_HTML" | sed 's#<div[^>]*>##' | cut -c 1-100 | sed 's/<.*$//')
+
+python3 gen_solar_status_bmp.py --daily-output "$ENERGY_TODAY" --total-output "$LIFETIME_ENERGY"
+
+./upload.sh
 
 rm "$TMP_HTML"
