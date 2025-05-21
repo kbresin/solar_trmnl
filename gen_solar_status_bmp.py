@@ -3,13 +3,13 @@ import argparse
 
 import datetime
 from datetime import datetime
+
+project_dir='/home/kyle/projects/solar_trmnl'
+
 local_now = str(datetime.now())
 # 2020-03-03 09:51:38.570162+01:00
 shorter_time = ':'.join(local_now.split(':')[0:2])
-
-print(local_now)
-print(shorter_time)
-# 2020-03-03 09:51:38.570162+01:00
+# 2020-03-03 09:51
 
 
 parser = argparse.ArgumentParser()
@@ -25,28 +25,40 @@ img = Image.new('1', (800, 480), color='white')
 # Initialize ImageDraw
 draw = ImageDraw.Draw(img)
 
+# Add logo to the top left
+logo = Image.open(project_dir+'/green_team_logo_325.png')  # Your image file here
+#logo = logo.resize((100, 100))
+#img.paste(logo, (550, 5))
+img.paste(logo, (460, 5))
+
 # Draw some text
 # Gidole is a OS font from google
-font_ttf = 'Gidole-Regular.ttf'
+font_ttf = project_dir+'/Gidole-Regular.ttf'
 
 # title
 title_font = ImageFont.truetype(font_ttf, 60)
-draw.text((10, 10), "GLC Solar Status:", fill='black', font=title_font)
+hdr_offset_x = 5 
+hdr_offset_y = 5
+draw.text((hdr_offset_x, hdr_offset_y), "GLC Solar Array", fill='black', font=title_font)
+hdr_offset_x += 20
+hdr_offset_y += 90
 
 # headers and data
-hdr_font = ImageFont.truetype(font_ttf, 30)
-hdr_offset = 200
-draw.text((hdr_offset, 80), "Yesterday: "+args.daily_output, fill='black', font=title_font)
-draw.text((hdr_offset, 160), "Lifetime: "+args.total_output, fill='black', font=title_font)
+hdr_font = ImageFont.truetype(font_ttf, 50)
+data_font = ImageFont.truetype(font_ttf, 40)
+#hdr_offset_y = 180
 
-# status
-status_font = ImageFont.truetype(font_ttf, 16)
-draw.text((10, 450), "Updated: "+shorter_time,  fill='black', font=status_font)
+draw.text((hdr_offset_x, hdr_offset_y), "Energy Production:", fill='black', font=hdr_font)
+hdr_offset_x += 20
+hdr_offset_y += 70
+draw.text((hdr_offset_x, hdr_offset_y), "  Yesterday: "+args.daily_output, fill='black', font=data_font)
+hdr_offset_y += 60
+draw.text((hdr_offset_x, hdr_offset_y), "  Lifetime: "+args.total_output, fill='black', font=data_font)
 
-# Paste another image (if needed)
-#logo = Image.open('logo.png')  # Your image file here
-#logo = logo.resize((100, 100))
-#img.paste(logo, (250, 50))
+# ts
+ts_font = ImageFont.truetype(font_ttf, 16)
+draw.text((600, 450), "Updated: "+shorter_time,  fill='black', font=ts_font)
+
 
 # Save as BMP
-img.save('output.bmp')
+img.save(project_dir+'/output.bmp')

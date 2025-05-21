@@ -1,7 +1,8 @@
 #!/bin/bash
-set -x
 
 PATH=/bin:/usr/bin
+
+PROJECT_DIR=/home/kyle/projects/solar_trmnl
 
 BROWSERLESS_UP=$(docker ps | grep browserless | grep -c 'Up')
 
@@ -29,14 +30,14 @@ curl -s -o - \
   ]
 }' | jq .data[].results[].html > $TMP_HTML
 
-echo "wrote to $TMP_HTML"
+#echo "wrote to $TMP_HTML"
 
 # 294.34 kWh
 ENERGY_TODAY=$(sed 's#^.*Energy today</div>##' "$TMP_HTML" | sed 's#<div[^>]*>##' | cut -c 1-100 | sed 's/<.*$//')
 LIFETIME_ENERGY=$(sed 's#^.*Lifetime energy</div>##' "$TMP_HTML" | sed 's#<div[^>]*>##' | cut -c 1-100 | sed 's/<.*$//')
 
-python3 gen_solar_status_bmp.py --daily-output "$ENERGY_TODAY" --total-output "$LIFETIME_ENERGY"
+python3 $PROJECT_DIR/gen_solar_status_bmp.py --daily-output "$ENERGY_TODAY" --total-output "$LIFETIME_ENERGY"
 
-./upload.sh
+$PROJECT_DIR/upload.sh
 
-rm "$TMP_HTML"
+#rm "$TMP_HTML"
