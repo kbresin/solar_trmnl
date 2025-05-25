@@ -36,7 +36,7 @@ curl -s -o - \
 ENERGY_TODAY=$(sed 's#^.*Energy today</div>##' "$TMP_HTML" | sed 's#<div[^>]*>##' | cut -c 1-100 | sed 's/<.*$//')
 LIFETIME_ENERGY=$(sed 's#^.*Lifetime energy</div>##' "$TMP_HTML" | sed 's#<div[^>]*>##' | cut -c 1-100 | sed 's/<.*$//')
 
-python3 $PROJECT_DIR/gen_solar_status_bmp.py --daily-output "$ENERGY_TODAY" --total-output "$LIFETIME_ENERGY"
+python3 $PROJECT_DIR/gen_solar_status_bmp.py --daily-output "$ENERGY_TODAY" --lifetime-output "$LIFETIME_ENERGY"
 
 $PROJECT_DIR/upload.sh
 
