@@ -24,7 +24,7 @@ shorter_time = ':'.join(local_now.split(':')[0:2])
 # 2020-03-03 09:51
 
 KWH_TO_CO2_LB=411784.0/265930.0
-KWH_TO_DOLLAR=0.075
+KWH_TO_DOLLAR=0.085
 
 
 parser = argparse.ArgumentParser()
@@ -76,7 +76,7 @@ hdr_offset_y += 55
 draw.text((hdr_offset_x, hdr_offset_y), "  Yesterday: "+args.daily_output, fill='black', font=data_font)
 hdr_offset_y += 55
 draw.text((hdr_offset_x, hdr_offset_y), "  Lifetime: "+args.lifetime_output, fill='black', font=data_font)
-hdr_offset_y += 100 
+hdr_offset_y += 90 
 
 # co2 saved
 hdr_offset_x -= 20
@@ -85,7 +85,7 @@ hdr_offset_x += 20
 hdr_offset_y += 55
 draw.text((hdr_offset_x, hdr_offset_y), "  CO2 Reduction: "+'{:,}'.format(lifetime_co2_lbs)+" Pounds", fill='black', font=data_font)
 hdr_offset_y += 55
-draw.text((hdr_offset_x, hdr_offset_y), "  Energy Savings: $"+'{:,}'.format(lifetime_dollars), fill='black', font=data_font)
+draw.text((hdr_offset_x, hdr_offset_y), "  Cost Savings: $"+'{:,}'.format(lifetime_dollars), fill='black', font=data_font)
 hdr_offset_y += 60
 
 # ts
