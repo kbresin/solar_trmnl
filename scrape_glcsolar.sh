@@ -7,8 +7,9 @@ PROJECT_DIR=/home/kyle/projects/solar_trmnl
 BROWSERLESS_UP=$(docker ps | grep browserless | grep -c 'Up')
 
 if [[ "$BROWSERLESS_UP" -lt 1 ]]; then
-  docker start -p 3000:3000 browserless/chrome
+  docker run -d -p 3000:3000 browserless/chrome
   sleep 15
+  BROWSERLESS_UP=$(docker ps | grep browserless | grep -c 'Up')
 fi
 if [[ "$BROWSERLESS_UP" -lt 1 ]]; then
   echo "Error: cannot find browserless/chrome"
