@@ -1,4 +1,5 @@
 #!/bin/bash
+set -x
 
 PATH=/bin:/usr/bin
 
@@ -18,24 +19,13 @@ fi
 
 TMP_HTML=$(mktemp)
 
-curl -s -o - \
-  -X POST http://localhost:3000/scrape \
-  -H 'Content-Type: application/json' \
-  -d '{
-         "url": "https://monitoringpublic.solaredge.com/solaredge-web/p/site/public?name=Gethsemane%20Lutheran%20Church",
-         "gotoOptions": { "waitUntil": "networkidle0" },
-  "elements": [
-    {
-      "selector": "body"
-    }
-  ]
-}' | jq .data[].results[].html > $TMP_HTML
+curl -s -o - -X POST 'http://localhost:3000/function?stealth=true&timeout=120000'   -H 'Content-Type: application/javascript'   --data-binary @$PROJECT_DIR/solaredge.GOLD.js > "$TMP_HTML"
 
-#echo "wrote to $TMP_HTML"
+echo "wrote to $TMP_HTML"
 
 # 294.34 kWh
-ENERGY_TODAY=$(sed 's#^.*Energy today</div>##' "$TMP_HTML" | sed 's#<div[^>]*>##' | cut -c 1-100 | sed 's/<.*$//')
-LIFETIME_ENERGY=$(sed 's#^.*Lifetime energy</div>##' "$TMP_HTML" | sed 's#<div[^>]*>##' | cut -c 1-100 | sed 's/<.*$//')
+ENERGY_TODAY=$(grep 'Energy today' "$TMP_HTML" | sed 's#^.*Energy today</div>##' | sed 's#<div[^>]*>##' | cut -c 1-100 | sed 's/<.*$//')
+LIFETIME_ENERGY=$(grep 'Lifetime energy' "$TMP_HTML" | sed 's#^.*Lifetime energy</div>##' | sed 's#<div[^>]*>##' | cut -c 1-100 | sed 's/<.*$//')
 
 python3 $PROJECT_DIR/gen_solar_status_bmp.py --daily-output "$ENERGY_TODAY" --lifetime-output "$LIFETIME_ENERGY"
 
