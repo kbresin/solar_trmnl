@@ -11,13 +11,15 @@ else
   exit 1
 fi
 
+SETUP_DONE=0
+
 if [[ ! -d "$PROJECT_DIR/.venv" ]]; then
   echo "Creating venv..."
   $PYTHON -m venv "$PROJECT_DIR/.venv"
+  echo "Installing requirements..."
+  "$PROJECT_DIR/.venv/bin/pip" install -q -r "$PROJECT_DIR/requirements.txt"
+  SETUP_DONE=1
 fi
-
-echo "Installing requirements..."
-"$PROJECT_DIR/.venv/bin/pip" install -q -r "$PROJECT_DIR/requirements.txt"
 
 FONT_DIR="${HOME}/.local/share/fonts"
 FONT_PATH="${FONT_DIR}/Gidole-Regular.ttf"
@@ -26,6 +28,11 @@ if [[ ! -f "$FONT_PATH" ]]; then
   mkdir -p "$FONT_DIR"
   curl -sL "https://raw.githubusercontent.com/larsenwork/Gidole/master/Resources/GidoleFont/Gidole-Regular.ttf" \
     -o "$FONT_PATH"
+  SETUP_DONE=1
 fi
 
-echo "Done. Activate with: source .venv/bin/activate"
+if [[ $SETUP_DONE -eq 1 ]]; then
+  echo "Done. Activate with: source .venv/bin/activate"
+else
+  echo "Already up to date."
+fi
