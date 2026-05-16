@@ -7,7 +7,7 @@ source ~/.secrets/se.sh
 # Configuration
 API_KEY="${SOLAREDGE_API_KEY}"
 BASE_URL="https://monitoringapi.solaredge.com"
-SITE_ID="2764610"
+SITE_ID="${SOLAREDGE_SITE_ID}"
 
 # Time setup for the last 24 hours (Formatted: YYYY-MM-DD hh:mm:ss)
 END_TIME=$(date +"%Y-%m-%d %H:%M:%S")

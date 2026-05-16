@@ -1,10 +1,11 @@
 from PIL import Image, ImageDraw, ImageFont
+from pathlib import Path
 import argparse
 
 import datetime
 from datetime import datetime
 
-project_dir='/home/kyle/projects/solar_trmnl'
+project_dir = Path(__file__).parent
 
 def get_kwh(s):
   (value, unit) = s.split(' ')
@@ -30,6 +31,7 @@ KWH_TO_DOLLAR=0.085
 parser = argparse.ArgumentParser()
 parser.add_argument("--daily-output", required=True)
 parser.add_argument("--lifetime-output", required=True)
+parser.add_argument("--output", required=True)
 args = parser.parse_args()
 
 lifetime_kwh = get_kwh(args.lifetime_output)
@@ -45,14 +47,14 @@ draw = ImageDraw.Draw(img)
 
 # Add logo to the top left
 LOGO_FILE = 'green_team_logo_325_sun.png'
-logo = Image.open(project_dir+'/'+LOGO_FILE)  # Your image file here
+logo = Image.open(project_dir / LOGO_FILE)  # Your image file here
 #logo = logo.resize((100, 100))
 #img.paste(logo, (550, 5))
 img.paste(logo, (470, 5))
 
 # Draw some text
 # Gidole is a OS font from google
-font_ttf = project_dir+'/Gidole-Regular.ttf'
+font_ttf = project_dir / 'Gidole-Regular.ttf'
 
 # initial offset
 hdr_offset_x = 10 
@@ -94,4 +96,4 @@ draw.text((600, 450), "Updated: "+shorter_time,  fill='black', font=ts_font)
 
 
 # Save as BMP
-img.save(project_dir+'/output.bmp')
+img.save(args.output)

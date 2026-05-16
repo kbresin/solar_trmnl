@@ -1,2 +1,3 @@
 *.ttf
-output.bmp
+*.cache
+angry_debugging.html

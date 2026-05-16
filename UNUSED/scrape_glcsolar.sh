@@ -31,4 +31,4 @@ python3 $PROJECT_DIR/gen_solar_status_bmp.py --daily-output "$ENERGY_TODAY" --li
 
 $PROJECT_DIR/upload.sh
 
-#rm "$TMP_HTML"
+rm "$TMP_HTML"

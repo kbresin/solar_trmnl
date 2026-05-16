@@ -5,12 +5,11 @@ source ~/.secrets/se.sh
 # Configuration
 API_KEY="${SOLAREDGE_API_KEY}"
 BASE_URL="https://monitoringapi.solaredge.com"
-SITE_ID="2764610"
+SITE_ID="${SOLAREDGE_SITE_ID}"
 
-# --- BASH MAGIC ---
-# Get the directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CACHE_FILE="${SCRIPT_DIR}/inverters.cache"
+CACHE_DIR="${HOME}/.cache/solar_trmnl"
+mkdir -p "$CACHE_DIR"
+CACHE_FILE="${CACHE_DIR}/inverters.cache"
 
 # Time window: Last 24 hours
 # Format: YYYY-MM-DD hh:mm:ss
