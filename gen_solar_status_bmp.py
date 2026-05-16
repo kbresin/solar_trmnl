@@ -54,7 +54,9 @@ img.paste(logo, (470, 5))
 
 # Draw some text
 # Gidole is a OS font from google
-font_ttf = project_dir / 'Gidole-Regular.ttf'
+font_ttf = Path.home() / '.local' / 'share' / 'fonts' / 'Gidole-Regular.ttf'
+if not font_ttf.exists():
+    raise FileNotFoundError(f"Font not found: {font_ttf}\nRun ./setup.sh to download it.")
 
 # initial offset
 hdr_offset_x = 10 
