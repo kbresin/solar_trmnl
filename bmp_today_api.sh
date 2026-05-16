@@ -3,6 +3,11 @@
 set -e
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+S3_DEST="output.bmp"
+for arg in "$@"; do
+  [[ "$arg" == "--test" ]] && S3_DEST="output_test.bmp"
+done
+
 VENV="$PROJECT_DIR/.venv/bin/activate"
 if [[ ! -f "$VENV" ]]; then
   echo "Error: venv not found at $VENV — run: ./setup.sh" >&2
@@ -24,4 +29,4 @@ LIFETIME_ENERGY=$(python3 $PROJECT_DIR/api/energy_units.py "${LIFETIME_WH}")
 
 python3 $PROJECT_DIR/gen_solar_status_bmp.py --daily-output "$ENERGY_TODAY" --lifetime-output "$LIFETIME_ENERGY" --output "${output_bmp}"
 
-$PROJECT_DIR/upload.sh "${output_bmp}"
+$PROJECT_DIR/upload.sh "${output_bmp}" "${S3_DEST}"

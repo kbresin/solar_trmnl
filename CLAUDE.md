@@ -6,58 +6,54 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Monitors a solar array (Gethsemane Lutheran Church / GLC Solar) and displays data on a TRMNL e-ink device. The pipeline:
 
-1. Fetches energy data (today's output + lifetime production)
+1. Fetches energy data (today's output + lifetime production) from the SolarEdge API
 2. Converts units via `api/energy_units.py`
 3. Renders a 800×480 monochrome BMP image via `gen_solar_status_bmp.py`
-4. Uploads the BMP to S3 (`s3://glcsolar/public/CE243659F38BF956/output.bmp`) via `upload.sh`
+4. Uploads the BMP to a public S3 bucket via `upload.sh`
 5. TRMNL device polls S3 and displays the image
 
-## Two data pipelines
+## Setup
 
-**API pipeline** (preferred): `bmp_today_api.sh`
-- Calls SolarEdge Monitoring API directly
-- Requires `~/.secrets/se.sh` exporting `SOLAREDGE_API_KEY`
-- Uses `api/get_site_energy_today.sh` → pipes Wh through `api/energy_units.py` → renders BMP → uploads
+```bash
+./setup.sh   # creates .venv and pip-installs requirements.txt
+```
 
-**Scraping pipeline** (fallback): `scrape_glcsolar.sh`
-- Uses `browserless/chrome` Docker container on port 3000
-- Runs `solaredge.GOLD.js` via the browserless `/function` endpoint to scrape the public SolarEdge dashboard
-- Parses "Energy today" and "Lifetime energy" from returned HTML with `sed`/`grep`
+The font file `Gidole-Regular.ttf` must also be present in the repo root (not committed — in `.gitignore`).
 
 ## Running
 
 ```bash
-# API pipeline (primary)
+# Normal run
 ./bmp_today_api.sh
 
-# Scraping pipeline (requires Docker + browserless running)
-./scrape_glcsolar.sh
+# Upload to output_test.bmp on S3 instead of output.bmp
+./bmp_today_api.sh --test
 
-# Generate BMP directly with known values (for testing layout)
-python3 gen_solar_status_bmp.py --daily-output '200.64 kWh' --lifetime-output '262.94 MWh'
+# Generate BMP directly with known values (useful for testing layout)
+python3 gen_solar_status_bmp.py --daily-output '200.64 kWh' --lifetime-output '262.94 MWh' --output out.bmp
 
-# Upload to test slot instead of prod
-./upload_test.sh   # writes to test.bmp instead of output.bmp
-
-# SolarEdge API utilities (require SOLAREDGE_API_KEY in env)
-./api/get_site_energy_today.sh  # JSON: today + lifetime Wh
-./api/check_health.sh           # 24h system health report
-./api/check_panel_health.sh     # per-inverter DC analysis (caches serials in api/inverters.cache)
-python3 api/energy_units.py 265930000  # convert Wh → readable string
+# Convert Wh to a readable string
+python3 api/energy_units.py 265930000
 ```
 
-## Environment requirements
+## Environment — `~/.secrets/se.sh`
 
-- Python venv at `/home/kyle/projects/solar_trmnl/.venv` (contains Pillow)
-- Font file `Gidole-Regular.ttf` must exist at `project_dir` (hardcoded in `gen_solar_status_bmp.py`)
-- AWS CLI configured with profile `glcsolar_s3`
-- `~/.secrets/se.sh` sourced for `SOLAREDGE_API_KEY`
-- `jq` for JSON parsing in shell scripts
-- Docker (only for scraping pipeline)
+All secrets and site-specific config are sourced from `~/.secrets/se.sh`. Required exports:
+
+```bash
+export SOLAREDGE_API_KEY=...
+export SOLAREDGE_SITE_ID=2764610
+export S3_PROFILE=glcsolar_s3      # AWS CLI profile name
+export S3_BUCKET=glcsolar          # S3 bucket name
+```
+
+Additional requirements: `jq` and the AWS CLI must be on `PATH`.
 
 ## Key details
 
-- BMP output is always monochrome 1-bit (`Image.new('1', (800, 480), ...)`) — Pillow dithers any grayscale automatically
-- `project_dir` is hardcoded as `/home/kyle/projects/solar_trmnl` in `gen_solar_status_bmp.py` — update this if the path changes
-- CO2 conversion factor: `411784.0 / 265930.0` lbs/kWh; cost factor: `$0.085/kWh`
-- `api/check_panel_health.sh` uses GNU `date -d` syntax (Linux) — won't work on macOS without `gdate`
+- BMP output is written to a `mktemp` file and cleaned up after upload — nothing is written to the repo directory
+- BMP is always monochrome 1-bit (`Image.new('1', (800, 480), ...)`) — Pillow dithers any grayscale automatically
+- `upload.sh` takes two args: `<local-bmp-path> <s3-destination-filename>` — called by `bmp_today_api.sh`, rarely needed standalone
+- Inverter serial number cache lives at `~/.cache/solar_trmnl/inverters.cache` (outside the repo)
+- CO2 conversion: `411784.0 / 265930.0` lbs/kWh; cost: `$0.085/kWh`
+- Unused scripts (scraping pipeline, health checks, etc.) are preserved in `UNUSED/`
