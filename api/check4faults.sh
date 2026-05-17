@@ -96,10 +96,10 @@ if [[ $DEBUG -eq 1 ]]; then
 fi
 
 alert_qty=$(echo "$details" | jq '.details.alertQuantity // 0')
-alert_sev=$(echo "$details" | jq -r '.details.alertSeverity // "NONE"')
+alert_sev=$(echo "$details" | jq -r '.details.highestImpact // "0"')
 
 healthy=1
-if [[ "$alert_sev" != "NONE" ]] || [[ "$alert_qty" -gt 0 ]]; then
+if [[ "$alert_sev" != "0" ]] || [[ "$alert_qty" -gt 0 ]]; then
 	healthy=0
 	echo "FAULT: ${alert_qty} open alert(s), max severity: ${alert_sev}"
 else
@@ -121,6 +121,11 @@ fi
 
 for sn in $inverter_sns; do
 	data=$(api_get_inverter_data "$sn" "$start_time" "$end_time")
+	if [[ -z "$data" ]]; then
+		echo ""
+		echo "Inverter ${sn}: no data returned"
+		continue
+	fi
 	[[ $healthy -eq 0 ]] && print_fault_detail "$sn" "$data"
 	[[ $FULL_CHECK -eq 1 ]] && log_inverter_data "$sn" "$data" "$end_time"
 done
