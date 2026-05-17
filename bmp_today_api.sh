@@ -5,13 +5,13 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 S3_DEST="output.bmp"
 for arg in "$@"; do
-  [[ "$arg" == "--test" ]] && S3_DEST="output_test.bmp"
+	[[ "$arg" == "--test" ]] && S3_DEST="output_test.bmp"
 done
 
 VENV="$PROJECT_DIR/.venv/bin/activate"
 if [[ ! -f "$VENV" ]]; then
-  echo "Error: venv not found at $VENV — run: ./setup.sh" >&2
-  exit 1
+	echo "Error: venv not found at $VENV — run: ./setup.sh" >&2
+	exit 1
 fi
 source "$VENV"
 
@@ -19,7 +19,7 @@ today_json=$(mktemp)
 output_bmp=$(mktemp --suffix=.bmp)
 trap 'rm -f "${today_json}" "${output_bmp}"' EXIT
 
-$PROJECT_DIR/api/get_site_energy_today.sh > "${today_json}"
+$PROJECT_DIR/api/get_site_energy_today.sh >"${today_json}"
 
 TODAY_WH=$(jq .timeFrameEnergy.energy "${today_json}")
 LIFETIME_WH=$(jq .timeFrameEnergy.endLifetimeEnergy.energy "${today_json}")
