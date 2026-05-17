@@ -1,0 +1,104 @@
+SolarEdge Monitoring API — Reference (March 2026)
+====================================================
+
+Base URL:  https://monitoringapi.solaredge.com
+Auth:      ?api_key=<key> on every request (HTTPS only)
+Format:    JSON only (CSV/XML removed March 2026)
+Dates:     YYYY-MM-DD hh:mm:ss — always in site local time
+Units:     Metric; temperatures in Celsius; energy in Wh
+
+Rate limits:
+  - 300 requests/day per account token
+  - 300 requests/day per site ID from same source IP
+  - Max 3 concurrent requests from same IP
+  - HTTP 429 if exceeded
+
+
+ENDPOINTS USED IN THIS PROJECT
+-------------------------------
+
+Site Energy – Time Period
+  GET /site/{siteId}/timeFrameEnergy
+  Params: startDate (YYYY-MM-DD), endDate (YYYY-MM-DD)
+  Returns: total energy produced in range + lifetime energy
+  Note: on-grid energy only; may differ from dashboard in storage/backup sites
+  Limit: max 1-year range
+  Used by: api/get_site_energy_today.sh
+  Response fields of interest:
+    .timeFrameEnergy.energy          — period energy in Wh
+    .timeFrameEnergy.unit            — "Wh"
+    .timeFrameEnergy.endLifetimeEnergy.energy  — lifetime Wh
+
+
+ENDPOINTS USEFUL FOR FAULT DETECTION
+--------------------------------------
+
+Site Details
+  GET /site/{siteId}/details
+  Returns: site metadata including open alert count and severity
+  Note: alertQuantity and alertSeverity only available with account-level API key
+  Response fields of interest:
+    .details.alertQuantity    — number of open alerts (0 = no alerts)
+    .details.alertSeverity    — "NONE" | "WARNING" | "ERROR" | "CRITICAL"
+    .details.status           — "Active" | "Pending Communication"
+
+Site Inventory
+  GET /site/{siteId}/inventory
+  Returns: all equipment — inverters, meters, batteries, gateways, sensors
+  Used to get inverter serial numbers for telemetry queries
+  Response fields of interest:
+    .Inventory.inverters[].SN        — inverter serial number
+    .Inventory.inverters[].name      — e.g. "Inverter 1"
+    .Inventory.inverters[].model     — e.g. "SE20K"
+
+Inverter Technical Data
+  GET /equipment/{siteId}/{serialNumber}/data
+  Params: startTime, endTime (YYYY-MM-DD hh:mm:ss); max 1-week range
+  Returns: per-inverter telemetry at ~5-minute intervals
+  Response fields of interest:
+    .data.telemetries[].date
+    .data.telemetries[].inverterMode  — see modes below
+    .data.telemetries[].dcVoltage     — DC input voltage
+    .data.telemetries[].temperature   — inverter temp in Celsius
+    .data.telemetries[].totalActivePower
+    .data.telemetries[].totalEnergy   — lifetime Wh
+
+  inverterMode values:
+    MPPT            — normal production
+    SLEEPING        — night mode (normal)
+    STARTING        — pre-production (normal)
+    THROTTLED       — forced power reduction
+    SHUTTING_DOWN   — shutdown procedure
+    OFF             — off
+    STANDBY         — maintenance
+    FAULT           — error mode  *** alert on this ***
+    LOCKED_STDBY               — standby lock
+    LOCKED_FIRE_FIGHTERS       — firefighters lock
+    LOCKED_FORCE_SHUTDOWN      — forced shutdown from server
+    LOCKED_COMM_TIMEOUT        — communication timeout  *** alert on this ***
+    LOCKED_INV_TRIP            — inverter self-lock trip  *** alert on this ***
+    LOCKED_INV_ARC_DETECTED    — arc detection self-lock  *** alert on this ***
+    LOCKED_DG                  — DG mode lock
+    LOCKED_PHASE_BALANCER      — phase imbalance (1ph AU only)
+    LOCKED_PRE_COMMISSIONING   — pre-commissioning lock
+    LOCKED_INTERNAL            — undisclosed internal lock  *** alert on this ***
+
+
+OTHER POTENTIALLY USEFUL ENDPOINTS
+------------------------------------
+
+Site Overview
+  GET /site/{siteId}/overview
+  Returns: current power + today/month/year/lifetime energy and revenue
+  Good for a quick status check without a date range
+  Response fields:
+    .overview.currentPower.power
+    .overview.lastDayData.energy
+    .overview.lastMonthData.energy
+    .overview.lastYearData.energy
+    .overview.lifeTimeData.energy
+
+Site Environmental Benefits
+  GET /site/{siteId}/envBenefits?systemUnits=Imperial
+  Returns: CO2 saved (lbs), trees planted, light bulbs equivalent
+  Note: project currently calculates these locally — this is the API version

@@ -23,7 +23,10 @@ The font file `Gidole-Regular.ttf` must also be present in the repo root (not co
 ## Running
 
 ```bash
-# Normal run
+# Production run (with SNS alerting on failure)
+./run.sh
+
+# Direct run (no alerting)
 ./bmp_today_api.sh
 
 # Upload to output_test.bmp on S3 instead of output.bmp
@@ -35,6 +38,21 @@ python3 gen_solar_status_bmp.py --daily-output '200.64 kWh' --lifetime-output '2
 # Convert Wh to a readable string
 python3 api/energy_units.py 265930000
 ```
+
+## Cron
+
+```
+# Daily BMP generation at 10:05 PM
+5 22 * * * /home/$USER/projects/solar_trmnl/run.sh bmp_today_api.sh >>/home/$USER/projects/solar_trmnl/glcsolar_api.log 2>&1
+
+# Daily fault check at 10:00 AM — SNS warning sent automatically on non-zero exit
+0 10 * * 1-4,6 /home/$USER/projects/solar_trmnl/run.sh api/check4faults.sh >>/home/$USER/projects/solar_trmnl/glcsolar_api.log 2>&1
+
+# Friday full check — same fault check plus 7-day inverter telemetry logged to ~/.cache/solar_trmnl/inverter_weekly.log
+0 10 * * 5 /home/$USER/projects/solar_trmnl/run.sh api/check4faults.sh --full-check >>/home/$USER/projects/solar_trmnl/glcsolar_api.log 2>&1
+```
+
+`run.sh` always echoes output to stdout so both success and failure runs are captured in the log. On non-zero exit it fires an SNS warning before exiting — `check4faults.sh` exits 0 when clean, 1 when alerts are found, 2 if the API is unreachable.
 
 ## Environment — `~/.secrets/se.sh`
 
@@ -48,6 +66,10 @@ export S3_BUCKET=glcsolar          # S3 bucket name
 ```
 
 Additional requirements: `jq` and the AWS CLI must be on `PATH`.
+
+## API Reference
+
+A condensed reference covering the endpoints used in this project is in `api/solaredge_api.txt`.
 
 ## Key details
 
