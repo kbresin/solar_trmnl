@@ -5,8 +5,9 @@ PATH=/usr/local/bin:$PATH
 source ~/.secrets/se.sh
 
 BASE_URL="https://monitoringapi.solaredge.com"
-LOG_DIR="${HOME}/.cache/solar_trmnl"
-LOG_FILE="${LOG_DIR}/inverter_weekly.log"
+CACHE_DIR="${HOME}/.cache/solar_trmnl"
+CACHE_FILE="${CACHE_DIR}/inverters.cache"
+LOG_FILE="${CACHE_DIR}/inverter_weekly.log"
 FAULT_MODES="FAULT|LOCKED_FORCE_SHUTDOWN|LOCKED_COMM_TIMEOUT|LOCKED_INV_TRIP|LOCKED_INV_ARC_DETECTED|LOCKED_INTERNAL"
 
 api_get() {
@@ -19,6 +20,18 @@ api_get_inverter_data() {
 		--data-urlencode "startTime=${start}" \
 		--data-urlencode "endTime=${end}" \
 		--data-urlencode "api_key=${SOLAREDGE_API_KEY}"
+}
+
+get_inverter_sns() {
+	if [[ -f "$CACHE_FILE" ]]; then
+		cut -f1 "$CACHE_FILE"
+	else
+		mkdir -p "$CACHE_DIR"
+		local data
+		data=$(api_get "/site/${SOLAREDGE_SITE_ID}/inventory")
+		echo "$data" | jq -r '.Inventory.inverters[] | "\(.SN)\t\(.name)"' >"$CACHE_FILE"
+		cut -f1 "$CACHE_FILE"
+	fi
 }
 
 date_ago() {
@@ -87,7 +100,7 @@ if [[ $DEBUG -eq 1 ]]; then
 
 	end_time=$(date "+%Y-%m-%d %H:%M:%S")
 	start_time=$(date_ago "-v-24H" "24 hours ago")
-	for sn in $(echo "$inventory" | jq -r '.Inventory.inverters[].SN'); do
+	for sn in $(get_inverter_sns); do
 		echo ""
 		echo "=== /equipment/${SOLAREDGE_SITE_ID}/${sn}/data (last 24h) ==="
 		api_get_inverter_data "$sn" "$start_time" "$end_time" | jq .
@@ -110,7 +123,7 @@ if [[ $healthy -eq 1 ]] && [[ $FULL_CHECK -eq 0 ]]; then
 	exit 0
 fi
 
-inverter_sns=$(api_get "/site/${SOLAREDGE_SITE_ID}/inventory" | jq -r '.Inventory.inverters[].SN')
+inverter_sns=$(get_inverter_sns)
 end_time=$(date "+%Y-%m-%d %H:%M:%S")
 
 if [[ $FULL_CHECK -eq 1 ]]; then
