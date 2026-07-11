@@ -1,6 +1,7 @@
 *.ttf
 *.cache
 angry_debugging.html
-glcsolar_api.log
+glcsolar*.log
 __pycache__/
 *.pyc
+.venv
