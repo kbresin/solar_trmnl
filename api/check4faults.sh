@@ -44,18 +44,25 @@ print_fault_detail() {
 	echo "Inverter ${sn}:"
 	echo "$data" | jq -r '.data.telemetries[-1] |
         "  latest [\(.date)]: mode=\(.inverterMode) dcV=\(.dcVoltage)V temp=\(.temperature)°C"'
+	# The API omits inverterMode entirely on some samples, so guard test() against null.
 	echo "$data" | jq -r --arg pat "${FAULT_MODES}" \
-		'[.data.telemetries[] | select(.inverterMode | test($pat))] |
-        if length > 0 then
-          "  fault modes: " + (map("[\(.date)] \(.inverterMode)") | join(", "))
-        else
-          "  no fault modes in window"
-        end'
+		'[.data.telemetries[] | select((.inverterMode // "") | test($pat))] as $faults |
+        [.data.telemetries[] | select(has("inverterMode") | not)] as $nomode |
+        (if ($faults | length) > 0 then
+           "  fault modes: " + ($faults | map("[\(.date)] \(.inverterMode)") | join(", "))
+         else
+           "  no fault modes in window"
+         end),
+        (if ($nomode | length) > 0 then
+           "  no mode reported: " + ($nomode | map("[\(.date)] power=\(.totalActivePower)W dcV=\(.dcVoltage)") | join(", "))
+         else
+           empty
+         end)'
 }
 
 log_inverter_data() {
 	local sn="$1" data="$2" end_time="$3"
-	mkdir -p "$LOG_DIR"
+	mkdir -p "$CACHE_DIR"
 	{
 		echo ""
 		echo "=== Full check: ${end_time} | Inverter ${sn} ==="
