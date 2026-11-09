@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -ex
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 S3_DEST="output.bmp"
