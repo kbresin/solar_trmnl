@@ -83,7 +83,35 @@ Devices
   [{type:"INVERTER", serialNumber, name ("Inverter 1"), partNumber,
     nameplate, firmwareVersion, connectedOptimizers, active, ...}]
 
-Not found in V2 (HTTP 404): /inventory, /inverters/power, /inverters/energy,
+Devices — optimizers
+  GET /sites/{siteId}/devices?types=OPTIMIZER
+  [{type:"OPTIMIZER", serialNumber, model/partNumber (P860-...), name ("Optimizer 4.2.4"),
+    connectedTo (inverter SN), connectedToName, active, createdAt}]
+  112 listed / 110 active: 2 were replaced 2023-09-18 and stay listed as inactive.
+  Used by: api/check4faults.sh (optimizer roster)
+  Per-optimizer (per-panel) telemetry: not found (tried /optimizers/telemetry,
+  /devices/{sn}/telemetry and similar — all 404).
+
+Inverter telemetry, daily
+  GET /sites/{siteId}/inverters/telemetry?resolution=DAY&from=&to=
+  DAY supports a maximum window of 1 month.  Used by: api/inverter_balance.py
+
+Site Power
+  GET /sites/{siteId}/power        site power (W), QUARTER_HOUR, default today
+
+Overview
+  GET /sites/{siteId}/overview     .production.total (today's Wh); consumption null (no meter)
+
+Environmental Benefits
+  GET /sites/{siteId}/environmental-benefits
+  {"co2Emissions": 272633.38, "evMiles": 1148545.1, "unit": "METRIC"}  (kg CO2 saved)
+
+Energy, long range
+  /energy?resolution=YEAR&from=2022-03-01T00:00:00-06:00 → yearly totals
+
+Tier-restricted (HTTP 403): /power-flow.
+
+Not found in V2 (HTTP 404): /optimizers, /meters, /storage, /inventory, /inverters/power, /inverters/energy,
 /inverters/production, /inverters/data.
 
 

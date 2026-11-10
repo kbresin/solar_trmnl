@@ -89,5 +89,7 @@ A condensed reference covering the endpoints used in this project is in `api/sol
 - OAuth tokens live in `~/.local/state/solar_trmnl/tokens.json` (mode 600), created once by `api/v2_authorize.sh`. `api/v2_lib.sh` refreshes them before each call; the refresh token rotates on every use and dies after 14 days unused, so only one machine may hold it
 - `api/v2_lib.sh` disables xtrace inside its functions so the bearer token never lands in a `set -x` log
 - `api/check4faults.sh --debug` dumps the raw V2 responses
+- `check4faults.sh` checks the optimizer roster on every run. It compares the active optimizers (110, one per panel) with `~/.local/state/solar_trmnl/optimizers.tsv`. Fewer active is a FAULT. A replacement (same count, new serial) updates the roster, and the change is printed in the run's output.
+- `--full-check` also runs `api/inverter_balance.py`: each inverter's output per panel as a share of the median inverter, last 7 days vs the 21 days before. A drop of 8+ points is a PERF warning (exit 1). Inverters are judged against themselves because Inverter 4 normally runs 80–98% of the median (shading) and Inverter 1 runs ~104%. A single dead panel (3–4 points) is below the noise; the optimizer check and SolarEdge alerts cover that
 - CO2 conversion: `411784.0 / 265930.0` lbs/kWh; cost: `$0.085/kWh`
 - Unused scripts (scraping pipeline, health checks, etc.) are preserved in `UNUSED/`
