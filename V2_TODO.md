@@ -9,7 +9,7 @@ Both jobs are affected:
 
 ## Status
 
-Authorized on 2026-11-09. The church's login owns the site, so the homeowner OAuth (Site Access) route works and no Fleet API key is needed. `GET /v2/sites/2764610` returns HTTP 200.
+Authorized on 2026-11-09. **V2 is done and live on deepthought: the code is tested and cron is re-enabled.** The church's login owns the site, so the homeowner OAuth (Site Access) route works and no Fleet API key is needed. `GET /v2/sites/2764610` returns HTTP 200.
 
 ## Manual steps (done)
 
@@ -78,27 +78,27 @@ Only **one** machine may hold and use the token. Each refresh replaces the refre
 ## Code changes
 
 - [x] **Login:** one-time authorization script, `api/v2_authorize.sh`.
-- [ ] **Token refresh:** refresh before each run, and send an SNS warning if the refresh fails. Refresh tokens change on every use, so save the latest one in `~/.local/state/solar_trmnl/` with owner-only permissions.
-- [ ] **Daily image:** get today's energy from `/v2/sites/{id}/energy` and the lifetime total from `/v2/sites/{id}/lifetime-energy`. SolarEdge says the `TOTAL` figure can come out lower than V1's, so `/lifetime-energy` is the closer match.
-- [ ] **Fault checks:** use `/v2/sites/{id}/alerts?only-open=true` for alerts and `/inverters/status` for inverter mode and temperature.
-- [ ] **Error handling:** make the energy fetch fail on the HTTP error. It currently passes the error JSON along and only breaks later.
+- [x] **Token refresh:** `api/v2_lib.sh` refreshes the access token when it has under 5 minutes left. The rotated refresh token is written to `tokens.json` atomically, under a flock. A failed refresh makes the job exit non-zero, so `run.sh` sends the SNS warning. Tested on 2026-11-09: the refresh grant works, and the refresh token does rotate.
+- [x] **Daily image:** `api/get_site_energy_today.sh` outputs `{todayWh, lifetimeWh}` from `/energy?resolution=DAY` and `/lifetime-energy`. A `--test` run uploaded `output_test.bmp` (201.82 kWh / 405.82 MWh).
+- [x] **Fault checks:** `api/check4faults.sh` uses `/alerts?only-open=true` and `/inverters/status`. Inverter fault modes are now checked on every run, not only when alerts are open. `--full-check` adds `/inverters/telemetry` to the weekly log.
+- [x] **Error handling:** `se_get` fails on any non-2xx response and retries 429s with backoff.
+- [x] Removed `set -x` from `bmp_today_api.sh`. `v2_lib.sh` also suppresses xtrace around token use.
+- [x] Moved the V1-only `api/check4alerts.sh` and `api/test_inverter_data.sh` to `UNUSED/api/`.
 
-## What will be different
+## Remaining
 
-- **Weekly log:** `dcVoltage` no longer exists in V2, so that column has to go. SolarEdge says the Alerts API now reports those faults.
-- **Re-authorizing:** the grant lasts up to 24 months, so the browser step has to be repeated about every two years. It also has to be repeated if the jobs stop for more than 14 days, because the refresh token expires.
-- **Usage:** estimated at well under 200 of the 2,000 free monthly credits.
+- [x] **Cron re-enabled on deepthought** on 2026-11-09, after both jobs passed a test run in a cron-like minimal environment. The daily image runs at 22:35, so the token gets refreshed every day.
+- [ ] Delete any other copy of `tokens.json` (laptop) if one exists. Deepthought's copy has now been refreshed, so any other copy is already dead.
+- [ ] Decide whether to delete the stale V1 `~/.cache/solar_trmnl/inverters.cache`, which is no longer read.
 
-## Not tested yet
+## What is different from V1
 
-The docs read so far don't show the exact response fields for the energy, alerts and inverter endpoints. Check them against live responses.
-
-Confirmed so far:
-
-- The authorize URL is `https://connect.solaredge.com/authorize`, with `scope=SITE_DATA DEVICE_DATA` and `access_duration=24`. The callback returns `code` and `site_id`, but no `state`.
-- The token endpoint is `POST https://monitoringapi.solaredge.com/v2/oauth2/token`. It takes a JSON body with `grant_type`, `code`, `client_id` and `client_secret`, and no `redirect_uri`. It returns `access_token`, `refresh_token`, `token_type` and `expires_in` (7200 seconds).
-- API calls use `Authorization: Bearer <access_token>` against `https://monitoringapi.solaredge.com/v2`.
-- The refresh grant (`grant_type: refresh_token`) hasn't been tested yet.
+- **Weekly log columns:** `date mode tempC activePowerW intervalEnergyWh`. `dcVoltage` is gone in V2, and `energy` is now per 15-minute interval rather than lifetime. Empty overnight slots are skipped.
+- **Inverter modes:** V2 reports `STARTING`, not `MPPT`, during production, even at 6 kW. This is harmless, because the check only alerts on FAULT and LOCKED_* modes.
+- **Alerts:** each alert carries `type`, `impact` and the component serial, and these are printed in the warning.
+- **Lifetime energy:** V2 reports 405.82 MWh.
+- **Re-authorizing:** needed every 24 months, or after 14 days without a refresh.
+- **API details:** confirmed endpoints and response shapes are in `api/solaredge_api.txt`.
 
 ## Sources
 

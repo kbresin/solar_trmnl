@@ -1,82 +1,45 @@
 #!/bin/bash
+# Check the site for open alerts and inverter fault modes (SolarEdge API V2).
+#
+#   check4faults.sh               open alerts; inverter detail (last 24h) only if unhealthy
+#   check4faults.sh --full-check  also append 7 days of inverter data to the weekly log
+#   check4faults.sh --debug       dump the raw API responses and exit
+#
+# Exit codes: 0 clean, 1 alerts or fault modes found, 2 API unreachable.
 
 PATH=/usr/local/bin:$PATH
 
-source ~/.secrets/se.sh
+# shellcheck source=api/v2_lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/v2_lib.sh"
 
-BASE_URL="https://monitoringapi.solaredge.com"
+SITE="/sites/${SOLAREDGE_SITE_ID}"
 CACHE_DIR="${HOME}/.cache/solar_trmnl"
-CACHE_FILE="${CACHE_DIR}/inverters.cache"
-LOG_FILE="${CACHE_DIR}/inverter_weekly.log"
+LOG_FILE="${INVERTER_LOG_FILE:-${CACHE_DIR}/inverter_weekly.log}"
 FAULT_MODES="FAULT|LOCKED_FORCE_SHUTDOWN|LOCKED_COMM_TIMEOUT|LOCKED_INV_TRIP|LOCKED_INV_ARC_DETECTED|LOCKED_INTERNAL"
 
-api_get() {
-	curl -sf "${BASE_URL}$1?api_key=${SOLAREDGE_API_KEY}"
+iso_ago() {
+	date --date="$1" "+%Y-%m-%dT%H:%M:%S%:z"
 }
 
-api_get_inverter_data() {
-	local sn="$1" start="$2" end="$3"
-	curl -sf -G "${BASE_URL}/equipment/${SOLAREDGE_SITE_ID}/${sn}/data" \
-		--data-urlencode "startTime=${start}" \
-		--data-urlencode "endTime=${end}" \
-		--data-urlencode "api_key=${SOLAREDGE_API_KEY}"
-}
-
-get_inverter_sns() {
-	if [[ -f "$CACHE_FILE" ]]; then
-		cut -f1 "$CACHE_FILE"
-	else
-		mkdir -p "$CACHE_DIR"
-		local data
-		data=$(api_get "/site/${SOLAREDGE_SITE_ID}/inventory")
-		echo "$data" | jq -r '.Inventory.inverters[] | "\(.SN)\t\(.name)"' >"$CACHE_FILE"
-		cut -f1 "$CACHE_FILE"
-	fi
-}
-
-date_ago() {
-	date "$1" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || date --date="$2" "+%Y-%m-%d %H:%M:%S"
-}
-
-print_fault_detail() {
-	local sn="$1" data="$2"
-	echo ""
-	echo "Inverter ${sn}:"
-	echo "$data" | jq -r '.data.telemetries[-1] |
-        "  latest [\(.date)]: mode=\(.inverterMode) dcV=\(.dcVoltage)V temp=\(.temperature)°C"'
-	# The API omits inverterMode entirely on some samples, so guard test() against null.
-	echo "$data" | jq -r --arg pat "${FAULT_MODES}" \
-		'[.data.telemetries[] | select((.inverterMode // "") | test($pat))] as $faults |
-        [.data.telemetries[] | select(has("inverterMode") | not)] as $nomode |
-        (if ($faults | length) > 0 then
-           "  fault modes: " + ($faults | map("[\(.date)] \(.inverterMode)") | join(", "))
-         else
-           "  no fault modes in window"
-         end),
-        (if ($nomode | length) > 0 then
-           "  no mode reported: " + ($nomode | map("[\(.date)] power=\(.totalActivePower)W dcV=\(.dcVoltage)") | join(", "))
-         else
-           empty
-         end)'
-}
-
-log_inverter_data() {
-	local sn="$1" data="$2" end_time="$3"
-	mkdir -p "$CACHE_DIR"
-	{
-		echo ""
-		echo "=== Full check: ${end_time} | Inverter ${sn} ==="
-		echo "date	mode	dcVoltage	tempC	activePowerW	totalEnergyWh"
-		echo "$data" | jq -r '.data.telemetries[] |
-            [
-                .date,
-                (.inverterMode // "null"),
-                (.dcVoltage | tostring),
-                (.temperature | tostring),
-                (.totalActivePower | tostring),
-                (.totalEnergy | tostring)
-            ] | join("\t")'
-	} >>"$LOG_FILE"
+# Turn /inverters/status (and optionally /inverters/telemetry) into rows of
+#   sn  timestamp  mode  tempC  powerW  energyWh
+# keyed on the status timestamps. Telemetry fields are blank if not supplied.
+inverter_rows() {
+	# Fed through stdin: a week of data is too big for jq's argument list.
+	printf '%s\n%s\n' "$1" "${2:-{\}}" | jq -rs '
+		def series($obj; $f): ($obj[$f].values // []) | map({key: .timestamp, value: .value}) | from_entries;
+		.[0] as $s | .[1] as $t
+		| $s.inverters | to_entries[] | .key as $sn | .value as $st
+		| ($t.inverters[$sn] // {}) as $tel
+		| series($st; "inverterMode") as $mode
+		| series($st; "temperature") as $temp
+		| series($tel; "power") as $pow
+		| series($tel; "energy") as $en
+		| ($mode | keys_unsorted)[]
+		| select($mode[.] != null or $temp[.] != null or $pow[.] != null)
+		| [$sn, ., ($mode[.] // "null"),
+		   ($temp[.] // "" | tostring), ($pow[.] // "" | tostring), ($en[.] // "" | tostring)]
+		| join("\t")'
 }
 
 # --- arg parsing ---
@@ -90,67 +53,85 @@ done
 
 # --- main ---
 
-details=$(api_get "/site/${SOLAREDGE_SITE_ID}/details")
-if [[ $? -ne 0 ]]; then
+if ! alerts=$(se_get "$SITE/alerts" --data-urlencode only-open=true); then
 	echo "ERROR: could not reach SolarEdge API" >&2
 	exit 2
 fi
 
 if [[ $DEBUG -eq 1 ]]; then
-	echo "=== /site/${SOLAREDGE_SITE_ID}/details ==="
-	echo "$details" | jq .
-
-	echo ""
-	echo "=== /site/${SOLAREDGE_SITE_ID}/inventory ==="
-	inventory=$(api_get "/site/${SOLAREDGE_SITE_ID}/inventory")
-	echo "$inventory" | jq .
-
-	end_time=$(date "+%Y-%m-%d %H:%M:%S")
-	start_time=$(date_ago "-v-24H" "24 hours ago")
-	for sn in $(get_inverter_sns); do
+	echo "=== $SITE/alerts?only-open=true ==="
+	echo "$alerts" | jq .
+	for p in "" /devices /inverters/status /inverters/telemetry; do
 		echo ""
-		echo "=== /equipment/${SOLAREDGE_SITE_ID}/${sn}/data (last 24h) ==="
-		api_get_inverter_data "$sn" "$start_time" "$end_time" | jq .
+		echo "=== $SITE$p ==="
+		se_get "$SITE$p" | jq .
 	done
 	exit 0
 fi
 
-alert_qty=$(echo "$details" | jq '.details.alertQuantity // 0')
-alert_sev=$(echo "$details" | jq -r '.details.highestImpact // "0"')
-
 healthy=1
-if [[ "$alert_sev" != "0" ]] || [[ "$alert_qty" -gt 0 ]]; then
+alert_qty=$(echo "$alerts" | jq 'length')
+if [[ "$alert_qty" -gt 0 ]]; then
 	healthy=0
-	echo "FAULT: ${alert_qty} open alert(s), max severity: ${alert_sev}"
+	echo "FAULT: ${alert_qty} open alert(s), max impact: $(echo "$alerts" | jq 'map(.impact) | max')"
+	echo "$alerts" | jq -r '.[] |
+		"  \(.type) (impact \(.impact), \(.category)) on \(.component.name // "" | if . == "" then "-" else . end) \(.component.serialNumber // "") since \(.firstTrigger), last \(.lastTrigger)"'
 else
-	echo "OK: no site alerts"
+	echo "OK: no open site alerts"
 fi
 
-if [[ $healthy -eq 1 ]] && [[ $FULL_CHECK -eq 0 ]]; then
-	exit 0
+# Inverter modes are checked every run, since they're a cheap second signal.
+if [[ $FULL_CHECK -eq 1 ]]; then
+	window="7 days ago"
+else
+	window="24 hours ago"
+fi
+start_time=$(iso_ago "$window")
+end_time=$(iso_ago "now")
+
+if ! status=$(se_get "$SITE/inverters/status" --data-urlencode "from=$start_time" --data-urlencode "to=$end_time"); then
+	echo "ERROR: could not fetch inverter status" >&2
+	exit 2
 fi
 
-inverter_sns=$(get_inverter_sns)
-end_time=$(date "+%Y-%m-%d %H:%M:%S")
+if ! rows=$(inverter_rows "$status"); then
+	echo "ERROR: could not parse inverter status" >&2
+	exit 2
+fi
+faults=$(awk -F'\t' -v pat="^(${FAULT_MODES})$" '$3 ~ pat' <<<"$rows")
+if [[ -n "$faults" ]]; then
+	healthy=0
+	echo ""
+	echo "FAULT: inverter fault modes since ${start_time}:"
+	echo "$faults" | awk -F'\t' '{printf "  %s [%s] %s temp=%s°C\n", $1, $2, $3, $4}'
+fi
+
+if [[ $healthy -eq 0 ]]; then
+	echo ""
+	echo "Latest inverter readings:"
+	echo "$status" | jq -r '.inverters | to_entries[] |
+		.key as $sn |
+		([.value.inverterMode.values[] | select(.value != null)] | last) as $m |
+		([.value.temperature.values[] | select(.value != null)] | last) as $t |
+		"  \($sn) [\($m.timestamp // "-")]: mode=\($m.value // "none") temp=\($t.value // "-")°C"'
+fi
 
 if [[ $FULL_CHECK -eq 1 ]]; then
-	start_time=$(date_ago "-v-7d" "7 days ago")
-else
-	start_time=$(date_ago "-v-24H" "24 hours ago")
-fi
-
-for sn in $inverter_sns; do
-	data=$(api_get_inverter_data "$sn" "$start_time" "$end_time")
-	if [[ -z "$data" ]]; then
-		echo ""
-		echo "Inverter ${sn}: no data returned"
-		continue
+	if ! telemetry=$(se_get "$SITE/inverters/telemetry" --data-urlencode "from=$start_time" --data-urlencode "to=$end_time"); then
+		echo "ERROR: could not fetch inverter telemetry" >&2
+		exit 2
 	fi
-	[[ $healthy -eq 0 ]] && print_fault_detail "$sn" "$data"
-	[[ $FULL_CHECK -eq 1 ]] && log_inverter_data "$sn" "$data" "$end_time"
-done
-
-if [[ $FULL_CHECK -eq 1 ]]; then
+	mkdir -p "$CACHE_DIR"
+	if ! rows=$(inverter_rows "$status" "$telemetry"); then
+		echo "ERROR: could not parse inverter telemetry" >&2
+		exit 2
+	fi
+	for sn in $(echo "$status" | jq -r '.inverters | keys[]'); do
+		echo ""
+		echo "=== Full check: ${end_time} | Inverter ${sn} ==="
+		printf 'date\tmode\ttempC\tactivePowerW\tintervalEnergyWh\n'
+		awk -F'\t' -v sn="$sn" 'BEGIN{OFS="\t"} $1 == sn {print $2, $3, $4, $5, $6}' <<<"$rows"
+	done >>"$LOG_FILE"
 	echo "Full inverter data (${start_time} to ${end_time}) appended to ${LOG_FILE}"
 fi
 
