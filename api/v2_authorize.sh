@@ -79,8 +79,11 @@ fi
 
 umask 077
 mkdir -p "$STATE_DIR"
-jq --arg now "$(date -u +%FT%TZ)" '. + {obtained_at:$now}' "$resp_file" >"$TOKEN_FILE"
+# authorized_at marks the start of the 24-month grant; run.sh warns before it ends.
+now=$(date -u +%FT%TZ)
+jq --arg now "$now" '. + {obtained_at:$now, authorized_at:$now, access_duration_months:24}' "$resp_file" >"$TOKEN_FILE"
 chmod 600 "$TOKEN_FILE"
+rm -f "$STATE_DIR/reauth_notified" "$STATE_DIR/grant_expiry_notified"
 echo "Tokens saved to $TOKEN_FILE"
 echo "Token response fields (values hidden):"
 jq -r 'to_entries[] | "  \(.key): \(if (.key|test("token")) then "<\(.value|tostring|length) chars>" else .value end)"' "$TOKEN_FILE"

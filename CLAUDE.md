@@ -56,6 +56,13 @@ The daily run also keeps the V2 refresh token alive. It expires after 14 days un
 
 `run.sh` always echoes output to stdout so both success and failure runs are captured in the log. On non-zero exit it fires an SNS warning before exiting — `check4faults.sh` exits 0 when clean, 1 when alerts are found, 2 if the API is unreachable.
 
+**Re-login notifications.** Exit code 3 (`SE_EXIT_REAUTH` in `api/v2_lib.sh`) means a person has to act. It covers:
+- the token endpoint rejecting the refresh token or the client credentials (HTTP 400/401)
+- an API call still returning 401/403 after a forced refresh
+- a missing `tokens.json`
+
+Network errors and 5xx responses are not code 3. On code 3, `run.sh` sends a dedicated "SolarEdge login needed" SNS message with the `v2_authorize.sh` steps, at most once a day. After a successful run, it sends a reminder when the 24-month grant (`authorized_at` in `tokens.json`) is 30 or fewer days from ending, at most once a week. The throttle markers live in `~/.local/state/solar_trmnl/` and are cleared by `v2_authorize.sh`. `SE_STATE_DIR` overrides that directory, which makes it possible to test with fake tokens.
+
 ## Environment — `~/.secrets/se.sh`
 
 All secrets and site-specific config are sourced from `~/.secrets/se.sh`. Required exports:

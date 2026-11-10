@@ -5,7 +5,8 @@
 #   check4faults.sh --full-check  also append 7 days of inverter data to the weekly log
 #   check4faults.sh --debug       dump the raw API responses and exit
 #
-# Exit codes: 0 clean, 1 alerts or fault modes found, 2 API unreachable.
+# Exit codes: 0 clean, 1 alerts or fault modes found, 2 API unreachable,
+#             3 SolarEdge login needed (see SE_EXIT_REAUTH in v2_lib.sh).
 
 PATH=/usr/local/bin:$PATH
 
@@ -16,6 +17,15 @@ SITE="/sites/${SOLAREDGE_SITE_ID}"
 CACHE_DIR="${HOME}/.cache/solar_trmnl"
 LOG_FILE="${INVERTER_LOG_FILE:-${CACHE_DIR}/inverter_weekly.log}"
 FAULT_MODES="FAULT|LOCKED_FORCE_SHUTDOWN|LOCKED_COMM_TIMEOUT|LOCKED_INV_TRIP|LOCKED_INV_ARC_DETECTED|LOCKED_INTERNAL"
+
+# Pass a re-auth failure (3) straight through so run.sh sends the login
+# notice; report anything else as "API unreachable" (2).
+fetch_failed() {
+	local rc="$1"
+	[[ "$rc" -eq "$SE_EXIT_REAUTH" ]] && exit "$rc"
+	echo "ERROR: $2" >&2
+	exit 2
+}
 
 iso_ago() {
 	date --date="$1" "+%Y-%m-%dT%H:%M:%S%:z"
@@ -53,10 +63,7 @@ done
 
 # --- main ---
 
-if ! alerts=$(se_get "$SITE/alerts" --data-urlencode only-open=true); then
-	echo "ERROR: could not reach SolarEdge API" >&2
-	exit 2
-fi
+alerts=$(se_get "$SITE/alerts" --data-urlencode only-open=true) || fetch_failed $? "could not reach SolarEdge API"
 
 if [[ $DEBUG -eq 1 ]]; then
 	echo "=== $SITE/alerts?only-open=true ==="
@@ -89,10 +96,7 @@ fi
 start_time=$(iso_ago "$window")
 end_time=$(iso_ago "now")
 
-if ! status=$(se_get "$SITE/inverters/status" --data-urlencode "from=$start_time" --data-urlencode "to=$end_time"); then
-	echo "ERROR: could not fetch inverter status" >&2
-	exit 2
-fi
+status=$(se_get "$SITE/inverters/status" --data-urlencode "from=$start_time" --data-urlencode "to=$end_time") || fetch_failed $? "could not fetch inverter status"
 
 if ! rows=$(inverter_rows "$status"); then
 	echo "ERROR: could not parse inverter status" >&2
@@ -117,10 +121,7 @@ if [[ $healthy -eq 0 ]]; then
 fi
 
 if [[ $FULL_CHECK -eq 1 ]]; then
-	if ! telemetry=$(se_get "$SITE/inverters/telemetry" --data-urlencode "from=$start_time" --data-urlencode "to=$end_time"); then
-		echo "ERROR: could not fetch inverter telemetry" >&2
-		exit 2
-	fi
+	telemetry=$(se_get "$SITE/inverters/telemetry" --data-urlencode "from=$start_time" --data-urlencode "to=$end_time") || fetch_failed $? "could not fetch inverter telemetry"
 	mkdir -p "$CACHE_DIR"
 	if ! rows=$(inverter_rows "$status" "$telemetry"); then
 		echo "ERROR: could not parse inverter telemetry" >&2

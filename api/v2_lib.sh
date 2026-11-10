@@ -6,6 +6,11 @@
 #
 #   se_get <path> [curl -G args...]   GET $SE_API_BASE<path>, JSON to stdout.
 #                                     Returns non-zero (body on stderr) on HTTP error.
+#
+# Exit/return code SE_EXIT_REAUTH (3) means a human has to act: either the OAuth
+# grant is dead and api/v2_authorize.sh must be re-run, or the client
+# credentials in ~/.secrets/se.sh were rejected. run.sh turns it into a
+# dedicated SNS notification. Anything else non-zero is treated as transient.
 
 # shellcheck source=/dev/null
 source "$HOME/.secrets/se.sh"
@@ -15,10 +20,12 @@ source "$HOME/.secrets/se.sh"
 
 SE_API_BASE="https://monitoringapi.solaredge.com/v2"
 SE_TOKEN_URL="$SE_API_BASE/oauth2/token"
-SE_STATE_DIR="$HOME/.local/state/solar_trmnl"
+SE_STATE_DIR="${SE_STATE_DIR:-$HOME/.local/state/solar_trmnl}"
 SE_TOKEN_FILE="$SE_STATE_DIR/tokens.json"
+SE_EXIT_REAUTH=3
 
-# Refresh the access token if it expires within 5 minutes. The refresh token
+# Refresh the access token if it expires within 5 minutes (or always, with
+# --force). The refresh token
 # rotates on every use, so the new one is written (atomically) before anything
 # else happens. A flock guards against two jobs refreshing at once.
 se_ensure_token() {
@@ -42,9 +49,11 @@ _se_quiet() {
 
 _se_ensure_token() {
 	if [[ ! -s "$SE_TOKEN_FILE" ]]; then
-		echo "ERROR: no token file at $SE_TOKEN_FILE — run api/v2_authorize.sh" >&2
-		return 1
+		echo "REAUTH: no token file at $SE_TOKEN_FILE — run api/v2_authorize.sh" >&2
+		return $SE_EXIT_REAUTH
 	fi
+	local force=0
+	[[ "${1:-}" == "--force" ]] && force=1
 	(
 		umask 077
 		flock -w 60 9 || {
@@ -55,7 +64,7 @@ _se_ensure_token() {
 		local now expires_at
 		now=$(date -u +%s)
 		expires_at=$(jq -r '((.obtained_at | fromdateiso8601) + (.expires_in // 0))' "$SE_TOKEN_FILE")
-		((expires_at - now > 300)) && exit 0
+		((force == 0 && expires_at - now > 300)) && exit 0
 
 		local body resp status tmp
 		body=$(jq -n --arg r "$(jq -r .refresh_token "$SE_TOKEN_FILE")" \
@@ -68,9 +77,22 @@ _se_ensure_token() {
 			-H 'Content-Type: application/json' -H 'Accept: application/json' -d "$body")
 
 		if [[ "$status" != 2* ]] || ! jq -e '.access_token' "$resp" >/dev/null 2>&1; then
-			echo "ERROR: SolarEdge token refresh failed (HTTP $status):" >&2
-			jq 'with_entries(select(.key|test("token")|not))' "$resp" >&2 2>/dev/null || cat "$resp" >&2
-			echo "If the refresh token has expired, re-run api/v2_authorize.sh." >&2
+			local err
+			err=$(jq -r '"\(.error // "?"): \(.error_description // "")"' "$resp" 2>/dev/null || head -c 300 "$resp")
+			# 400/401 from the token endpoint is a definitive rejection (seen:
+			# "invalid_request: Invalid refresh_token", "invalid_client: ...").
+			# Anything else (5xx, network) may clear up on its own.
+			if [[ "$status" == 400 || "$status" == 401 ]]; then
+				if [[ "$err" == invalid_client* ]]; then
+					echo "REAUTH: SolarEdge rejected the client credentials (HTTP $status, $err)." >&2
+					echo "Check SOLAREDGE_CLIENT_ID / SOLAREDGE_CLIENT_SECRET in ~/.secrets/se.sh." >&2
+				else
+					echo "REAUTH: SolarEdge rejected the refresh token (HTTP $status, $err)." >&2
+					echo "A new browser login is needed: run api/v2_authorize.sh." >&2
+				fi
+				exit $SE_EXIT_REAUTH
+			fi
+			echo "ERROR: SolarEdge token refresh failed (HTTP $status, $err)" >&2
 			exit 1
 		fi
 
@@ -85,18 +107,37 @@ _se_ensure_token() {
 _se_get() {
 	local path="$1"
 	shift
-	_se_ensure_token || return 1
-	local access resp status attempt
+	local access resp status attempt rc refreshed=0
+	_se_ensure_token || return $?
 	access=$(jq -r .access_token "$SE_TOKEN_FILE")
 	resp=$(mktemp)
-	# Retry rate-limit (429) responses with backoff: 15s, 30s, 60s.
+	# Retry rate-limit (429) responses with backoff: 15s, 30s, 60s. On a 401,
+	# force one token refresh and retry before giving up.
 	for attempt in 0 1 2 3; do
-		((attempt > 0)) && sleep $((15 * 2 ** (attempt - 1)))
+		((attempt > 0)) && [[ "$status" == 429 ]] && sleep $((15 * 2 ** (attempt - 1)))
 		status=$(curl -sS -G -o "$resp" -w '%{http_code}' \
 			-H "Authorization: Bearer $access" -H 'Accept: application/json' \
 			"$SE_API_BASE$path" "$@")
+		if [[ "$status" == 401 && $refreshed -eq 0 ]]; then
+			refreshed=1
+			_se_ensure_token --force || {
+				rc=$?
+				rm -f "$resp"
+				return $rc
+			}
+			access=$(jq -r .access_token "$SE_TOKEN_FILE")
+			continue
+		fi
 		[[ "$status" == 429 ]] || break
 	done
+	if [[ "$status" == 401 || "$status" == 403 ]]; then
+		echo "REAUTH: GET $path still returned HTTP $status after a fresh token:" >&2
+		cat "$resp" >&2
+		echo >&2
+		echo "The site access grant was probably revoked or has expired. Run api/v2_authorize.sh." >&2
+		rm -f "$resp"
+		return $SE_EXIT_REAUTH
+	fi
 	if [[ "$status" != 2* ]]; then
 		echo "ERROR: GET $path returned HTTP $status:" >&2
 		cat "$resp" >&2

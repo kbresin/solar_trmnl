@@ -91,6 +91,13 @@ Only **one** machine may hold and use the token. Each refresh replaces the refre
 - [ ] Delete any other copy of `tokens.json` (laptop) if one exists. Deepthought's copy has now been refreshed, so any other copy is already dead.
 - [ ] Decide whether to delete the stale V1 `~/.cache/solar_trmnl/inverters.cache`, which is no longer read.
 
+## Re-login notifications (added 2026-11-09)
+
+- [x] Scripts exit 3 when a new OAuth login is needed. `run.sh` then sends a "SolarEdge login needed" SNS message with the steps, at most once a day.
+- [x] `run.sh` sends a reminder 30 days before the 24-month grant ends, then at most weekly. The existing token was backfilled with `authorized_at` 2026-11-09, so the grant ends 2028-11-09 and the reminders start around 2028-10-10.
+- [x] Tested with fake tokens: a dead refresh token, a 401 on the access token, a bad client secret, a missing token file, the throttling, and the expiry reminder.
+- **Not covered:** if cron itself stops, nothing runs to send a warning, and the refresh token dies after 14 days.
+
 ## What is different from V1
 
 - **Weekly log columns:** `date mode tempC activePowerW intervalEnergyWh`. `dcVoltage` is gone in V2, and `energy` is now per 15-minute interval rather than lifetime. Empty overnight slots are skipped.
