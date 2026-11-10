@@ -1,104 +1,96 @@
-SolarEdge Monitoring API — Reference (March 2026)
-====================================================
+SolarEdge Monitoring API V2 — Reference (verified against live responses, Nov 2026)
+===================================================================================
 
-Base URL:  https://monitoringapi.solaredge.com
-Auth:      ?api_key=<key> on every request (HTTPS only)
-Format:    JSON only (CSV/XML removed March 2026)
-Dates:     YYYY-MM-DD hh:mm:ss — always in site local time
-Units:     Metric; temperatures in Celsius; energy in Wh
+V1 (monitoringapi.solaredge.com/site/...?api_key=) was retired 2026-11-03 and
+returns HTTP 410. Everything below is V2.
+
+Base URL:  https://monitoringapi.solaredge.com/v2
+Auth:      Authorization: Bearer <access_token>   (OAuth "Site Access" app)
+Format:    JSON
+Times:     ISO 8601 with offset, e.g. 2026-11-09T00:00:00-06:00 (site-local)
+Units:     energy WH, power W, temperature CELSIUS (each response says which)
 
 Rate limits:
-  - 300 requests/day per account token
-  - 300 requests/day per site ID from same source IP
-  - Max 3 concurrent requests from same IP
-  - HTTP 429 if exceeded
+  - Short-window limit is tight: ~5 calls in a few seconds returned HTTP 429.
+    api/v2_lib.sh retries 429s after 15s/30s/60s.
+  - 2,000 credits/month on the free tier.
+
+Implemented in api/v2_lib.sh (se_get / se_ensure_token).
+
+
+AUTH
+----
+
+Authorize (browser, once):  https://connect.solaredge.com/authorize
+  response_type=code, client_id, redirect_uri, scope="SITE_DATA DEVICE_DATA",
+  access_duration=24 (months). Callback gets ?code=...&site_id=...
+  Done by api/v2_authorize.sh.
+
+Token:  POST /v2/oauth2/token   (JSON body, no redirect_uri)
+  {grant_type:"authorization_code", code, client_id, client_secret}
+  {grant_type:"refresh_token", refresh_token, client_id, client_secret}
+  Returns access_token, refresh_token, token_type, expires_in (7200 s).
+  The refresh token ROTATES on every refresh and expires after 14 days unused.
+  Stored in ~/.local/state/solar_trmnl/tokens.json (mode 600).
 
 
 ENDPOINTS USED IN THIS PROJECT
--------------------------------
-
-Site Energy – Time Period
-  GET /site/{siteId}/timeFrameEnergy
-  Params: startDate (YYYY-MM-DD), endDate (YYYY-MM-DD)
-  Returns: total energy produced in range + lifetime energy
-  Note: on-grid energy only; may differ from dashboard in storage/backup sites
-  Limit: max 1-year range
-  Used by: api/get_site_energy_today.sh
-  Response fields of interest:
-    .timeFrameEnergy.energy          — period energy in Wh
-    .timeFrameEnergy.unit            — "Wh"
-    .timeFrameEnergy.endLifetimeEnergy.energy  — lifetime Wh
-
-
-ENDPOINTS USEFUL FOR FAULT DETECTION
---------------------------------------
+------------------------------
 
 Site Details
-  GET /site/{siteId}/details
-  Returns: site metadata including open alert count and severity
-  Note: alertQuantity and alertSeverity only available with account-level API key
-  Response fields of interest:
-    .details.alertQuantity    — number of open alerts (0 = no alerts)
-    .details.alertSeverity    — "NONE" | "WARNING" | "ERROR" | "CRITICAL"
-    .details.status           — "Active" | "Pending Communication"
+  GET /sites/{siteId}
+  .name, .peakPower, .location.timezone, .activationStatus, .lastUpdateTime
 
-Site Inventory
-  GET /site/{siteId}/inventory
-  Returns: all equipment — inverters, meters, batteries, gateways, sensors
-  Used to get inverter serial numbers for telemetry queries
-  Response fields of interest:
-    .Inventory.inverters[].SN        — inverter serial number
-    .Inventory.inverters[].name      — e.g. "Inverter 1"
-    .Inventory.inverters[].model     — e.g. "SE20K"
+Site Energy
+  GET /sites/{siteId}/energy
+  Params: from, to (ISO 8601; default = today, local midnight to now),
+          resolution (QUARTER_HOUR default, DAY, ...)
+  QUARTER_HOUR supports a maximum window of 1 week.
+  .unit = "WH", .values[] = {timestamp, value} (value null when no data)
+  Used by: api/get_site_energy_today.sh (resolution=DAY)
 
-Inverter Technical Data
-  GET /equipment/{siteId}/{serialNumber}/data
-  Params: startTime, endTime (YYYY-MM-DD hh:mm:ss); max 1-week range
-  Returns: per-inverter telemetry at ~5-minute intervals
-  Response fields of interest:
-    .data.telemetries[].date
-    .data.telemetries[].inverterMode  — see modes below
-    .data.telemetries[].dcVoltage     — DC input voltage
-    .data.telemetries[].temperature   — inverter temp in Celsius
-    .data.telemetries[].totalActivePower
-    .data.telemetries[].totalEnergy   — lifetime Wh
+Lifetime Energy
+  GET /sites/{siteId}/lifetime-energy
+  {"energy": 4.0582006E8, "unit": "WH", "lastUpdateTime": ...}
+  Used by: api/get_site_energy_today.sh
 
-  inverterMode values:
-    MPPT            — normal production
-    SLEEPING        — night mode (normal)
-    STARTING        — pre-production (normal)
-    THROTTLED       — forced power reduction
-    SHUTTING_DOWN   — shutdown procedure
-    OFF             — off
-    STANDBY         — maintenance
-    FAULT           — error mode  *** alert on this ***
-    LOCKED_STDBY               — standby lock
-    LOCKED_FIRE_FIGHTERS       — firefighters lock
-    LOCKED_FORCE_SHUTDOWN      — forced shutdown from server
-    LOCKED_COMM_TIMEOUT        — communication timeout  *** alert on this ***
-    LOCKED_INV_TRIP            — inverter self-lock trip  *** alert on this ***
-    LOCKED_INV_ARC_DETECTED    — arc detection self-lock  *** alert on this ***
-    LOCKED_DG                  — DG mode lock
-    LOCKED_PHASE_BALANCER      — phase imbalance (1ph AU only)
-    LOCKED_PRE_COMMISSIONING   — pre-commissioning lock
-    LOCKED_INTERNAL            — undisclosed internal lock  *** alert on this ***
+Alerts
+  GET /sites/{siteId}/alerts?only-open=true   (open only is also the default)
+  Array; [] when nothing is open. Each alert:
+    alertId, category (e.g. EQUIPMENT), type (e.g. CLOGGED_FAN), impact (int),
+    status (OPEN/CLOSED), firstTrigger, lastTrigger, closeDate,
+    component.{name, serialNumber}, errorCodes[]
+  Used by: api/check4faults.sh
+
+Inverter Status
+  GET /sites/{siteId}/inverters/status
+  Params: from, to (max 1 week at QUARTER_HOUR)
+  .inverters.{SN}.{inverterMode, operationMode, powerLimit, temperature}
+    each = {unit, values: [{timestamp, value}]}; most overnight slots are null.
+  Note: production intervals report STARTING rather than MPPT in V2.
+  Used by: api/check4faults.sh (fault modes, temperature)
+
+Inverter Telemetry
+  GET /sites/{siteId}/inverters/telemetry
+  Params: from, to (max 1 week at QUARTER_HOUR)
+  .inverters.{SN}.{power W, energy WH (per interval, NOT lifetime),
+                   consumedAcPower, consumedAcEnergy, voltage, current, frequency}
+  No dcVoltage in V2.
+  Used by: api/check4faults.sh --full-check (weekly log)
+
+Devices
+  GET /sites/{siteId}/devices
+  [{type:"INVERTER", serialNumber, name ("Inverter 1"), partNumber,
+    nameplate, firmwareVersion, connectedOptimizers, active, ...}]
+
+Not found in V2 (HTTP 404): /inventory, /inverters/power, /inverters/energy,
+/inverters/production, /inverters/data.
 
 
-OTHER POTENTIALLY USEFUL ENDPOINTS
-------------------------------------
-
-Site Overview
-  GET /site/{siteId}/overview
-  Returns: current power + today/month/year/lifetime energy and revenue
-  Good for a quick status check without a date range
-  Response fields:
-    .overview.currentPower.power
-    .overview.lastDayData.energy
-    .overview.lastMonthData.energy
-    .overview.lastYearData.energy
-    .overview.lifeTimeData.energy
-
-Site Environmental Benefits
-  GET /site/{siteId}/envBenefits?systemUnits=Imperial
-  Returns: CO2 saved (lbs), trees planted, light bulbs equivalent
-  Note: project currently calculates these locally — this is the API version
+INVERTER MODES (alert on the starred ones; see FAULT_MODES in check4faults.sh)
+-------------------------------------------------------------------------------
+  MPPT, SLEEPING, STARTING, THROTTLED, SHUTTING_DOWN, OFF, STANDBY — normal/benign
+  FAULT *, LOCKED_FORCE_SHUTDOWN *, LOCKED_COMM_TIMEOUT *, LOCKED_INV_TRIP *,
+  LOCKED_INV_ARC_DETECTED *, LOCKED_INTERNAL *
+  LOCKED_STDBY, LOCKED_FIRE_FIGHTERS, LOCKED_DG, LOCKED_PHASE_BALANCER,
+  LOCKED_PRE_COMMISSIONING — other locks

@@ -21,8 +21,8 @@ trap 'rm -f "${today_json}" "${output_bmp}"' EXIT
 
 $PROJECT_DIR/api/get_site_energy_today.sh >"${today_json}"
 
-TODAY_WH=$(jq .timeFrameEnergy.energy "${today_json}")
-LIFETIME_WH=$(jq .timeFrameEnergy.endLifetimeEnergy.energy "${today_json}")
+TODAY_WH=$(jq -e .todayWh "${today_json}")
+LIFETIME_WH=$(jq -e .lifetimeWh "${today_json}")
 
 ENERGY_TODAY=$(python3 $PROJECT_DIR/api/energy_units.py "${TODAY_WH}")
 LIFETIME_ENERGY=$(python3 $PROJECT_DIR/api/energy_units.py "${LIFETIME_WH}")
